@@ -1,0 +1,347 @@
+<?php
+/**
+ * Plugin Name: Portfolio Elementor Widget
+ * Description: یک افزونه ساده برای اضافه کردن ویجت پورتفولیو در المنتور. شامل Custom Post Type، دسته‌بندی، و یک ویجت پایه المنتور برای نمایش گرید نمونه‌کارها.
+ * Version: 1.0.0
+ * Author: محمدرضا
+ * Author URI: https://uhostco.ir
+ * Text Domain: portfolio-elementor
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly
+}
+
+final class Portfolio_Elementor_Plugin {
+
+    const VERSION = '1.0.0';
+    const TEXT_DOMAIN = 'portfolio-elementor';
+
+    private static $instance = null;
+
+    public static function instance() {
+        if ( null === self::$instance ) {
+            self::$instance = new self();
+            self::$instance->setup_hooks();
+        }
+        return self::$instance;
+    }
+
+    private function setup_hooks() {
+        register_activation_hook( __FILE__, array( $this, 'activate' ) );
+        register_deactivation_hook( __FILE__, array( $this, 'deactivate' ) );
+
+        add_action( 'init', array( $this, 'register_cpt' ) );
+        add_action( 'init', array( $this, 'register_taxonomy' ) );
+
+        add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+
+        add_action( 'elementor/widgets/register', array( $this, 'register_elementor_widget' ) );
+        add_action( 'plugins_loaded', array( $this, 'load_textdomain' ) );
+    }
+
+    public function activate() {
+        // create CPT and rewrite rules flush
+        $this->register_cpt();
+        $this->register_taxonomy();
+        flush_rewrite_rules();
+    }
+
+    public function deactivate() {
+        flush_rewrite_rules();
+    }
+
+    public function load_textdomain() {
+        load_plugin_textdomain( self::TEXT_DOMAIN, false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+    }
+
+    public function register_cpt() {
+        $labels = array(
+            'name'               => __( 'پورتفولیو', self::TEXT_DOMAIN ),
+            'singular_name'      => __( 'پروژه', self::TEXT_DOMAIN ),
+            'menu_name'          => __( 'پورتفولیو', self::TEXT_DOMAIN ),
+            'name_admin_bar'     => __( 'پروژه', self::TEXT_DOMAIN ),
+            'add_new'            => __( 'افزودن پروژه', self::TEXT_DOMAIN ),
+            'add_new_item'       => __( 'افزودن پروژه جدید', self::TEXT_DOMAIN ),
+            'edit_item'          => __( 'ویرایش پروژه', self::TEXT_DOMAIN ),
+            'new_item'           => __( 'پروژه جدید', self::TEXT_DOMAIN ),
+            'view_item'          => __( 'نمایش پروژه', self::TEXT_DOMAIN ),
+            'search_items'       => __( 'جستجوی پروژه‌ها', self::TEXT_DOMAIN ),
+            'not_found'          => __( 'پروژه‌ای یافت نشد', self::TEXT_DOMAIN ),
+        );
+
+        $args = array(
+            'labels'             => $labels,
+            'public'             => true,
+            'has_archive'        => true,
+            'show_in_rest'       => true,
+            'supports'           => array( 'title', 'editor', 'thumbnail', 'excerpt' ),
+            'menu_position'      => 20,
+            'menu_icon'          => 'dashicons-portfolio',
+            'rewrite'            => array( 'slug' => 'portfolio' ),
+        );
+
+        register_post_type( 'portfolio', $args );
+    }
+
+    public function register_taxonomy() {
+        $labels = array(
+            'name'              => __( 'دسته‌بندی‌های پورتفولیو', self::TEXT_DOMAIN ),
+            'singular_name'     => __( 'دسته‌بندی پورتفولیو', self::TEXT_DOMAIN ),
+        );
+
+        $args = array(
+            'labels'            => $labels,
+            'hierarchical'      => true,
+            'show_in_rest'      => true,
+            'rewrite'           => array( 'slug' => 'portfolio-category' ),
+        );
+
+        register_taxonomy( 'portfolio_category', array( 'portfolio' ), $args );
+    }
+
+    public function enqueue_assets() {
+        wp_register_style( 'portfolio-elementor-style', plugins_url( 'assets/css/portfolio-style.css', __FILE__ ), array(), self::VERSION );
+        wp_register_script( 'portfolio-elementor-script', plugins_url( 'assets/js/portfolio-script.js', __FILE__ ), array( 'jquery' ), self::VERSION, true );
+
+        wp_enqueue_style( 'portfolio-elementor-style' );
+        wp_enqueue_script( 'portfolio-elementor-script' );
+    }
+
+    public function register_elementor_widget( $widgets_manager ) {
+        // check if Elementor is active
+        if ( ! did_action( 'elementor/loaded' ) ) {
+            return;
+        }
+
+        require_once __DIR__ . '/includes/widgets/portfolio-widget.php';
+
+        // register widget
+        \Elementor\Plugin::instance()->widgets_manager->register_widget_type( new \Portfolio_Elementor_Widget() );
+    }
+
+}
+
+Portfolio_Elementor_Plugin::instance();
+
+// ------------------------------
+// includes/widgets/portfolio-widget.php
+// ------------------------------
+
+// NOTE: This file is included above. Below is the content for that file — when you split into files, place this class in
+// includes/widgets/portfolio-widget.php
+
+if ( ! class_exists( 'Portfolio_Elementor_Widget' ) && class_exists( '\Elementor\Widget_Base' ) ) :
+
+class Portfolio_Elementor_Widget extends \Elementor\Widget_Base {
+
+    public function get_name() {
+        return 'portfolio_widget';
+    }
+
+    public function get_title() {
+        return __( 'پورتفولیو', Portfolio_Elementor_Plugin::TEXT_DOMAIN );
+    }
+
+    public function get_icon() {
+        return 'eicon-gallery-grid';
+    }
+
+    public function get_categories() {
+        return array( 'general' );
+    }
+
+    protected function _register_controls() {
+
+        $this->start_controls_section(
+            'section_content',
+            [
+                'label' => __( 'تنظیمات', Portfolio_Elementor_Plugin::TEXT_DOMAIN ),
+            ]
+        );
+
+        $this->add_control(
+            'columns',
+            [
+                'label' => __( 'ستون‌ها', Portfolio_Elementor_Plugin::TEXT_DOMAIN ),
+                'type' => \Elementor\Controls_Manager::SELECT,
+                'options' => [
+                    '2' => '2',
+                    '3' => '3',
+                    '4' => '4',
+                ],
+                'default' => '3',
+            ]
+        );
+
+        $this->add_control(
+            'posts_per_page',
+            [
+                'label' => __( 'تعداد پروژه‌ها', Portfolio_Elementor_Plugin::TEXT_DOMAIN ),
+                'type' => \Elementor\Controls_Manager::NUMBER,
+                'min' => 1,
+                'max' => 50,
+                'step' => 1,
+                'default' => 9,
+            ]
+        );
+
+        $this->add_control(
+            'show_title',
+            [
+                'label' => __( 'نمایش عنوان', Portfolio_Elementor_Plugin::TEXT_DOMAIN ),
+                'type' => \Elementor\Controls_Manager::SWITCHER,
+                'label_on' => 'نمایش',
+                'label_off' => 'مخفی',
+                'return_value' => 'yes',
+                'default' => 'yes',
+            ]
+        );
+
+        $this->add_control(
+            'show_excerpt',
+            [
+                'label' => __( 'نمایش توضیح کوتاه', Portfolio_Elementor_Plugin::TEXT_DOMAIN ),
+                'type' => \Elementor\Controls_Manager::SWITCHER,
+                'label_on' => 'نمایش',
+                'label_off' => 'مخفی',
+                'return_value' => 'yes',
+                'default' => '',
+            ]
+        );
+
+        $this->add_control(
+            'show_filter',
+            [
+                'label' => __( 'نمایش فیلتر دسته‌بندی', Portfolio_Elementor_Plugin::TEXT_DOMAIN ),
+                'type' => \Elementor\Controls_Manager::SWITCHER,
+                'label_on' => 'نمایش',
+                'label_off' => 'مخفی',
+                'return_value' => 'yes',
+                'default' => 'yes',
+            ]
+        );
+
+        $this->end_controls_section();
+
+        // Style controls can be added here (colors, spacing, hover)
+    }
+
+    protected function render() {
+        $settings = $this->get_settings_for_display();
+
+        $columns = intval( $settings['columns'] );
+        $ppp = intval( $settings['posts_per_page'] );
+        $show_title = ( 'yes' === $settings['show_title'] );
+        $show_excerpt = ( 'yes' === $settings['show_excerpt'] );
+        $show_filter = ( 'yes' === $settings['show_filter'] );
+
+        // Fetch portfolio items
+        $args = array(
+            'post_type' => 'portfolio',
+            'posts_per_page' => $ppp,
+        );
+
+        $query = new WP_Query( $args );
+
+        // Get categories for filter
+        $terms = get_terms( array( 'taxonomy' => 'portfolio_category', 'hide_empty' => true ) );
+
+        ?>
+        <div class="pe-portfolio-widget">
+
+            <?php if ( $show_filter && ! empty( $terms ) && ! is_wp_error( $terms ) ) : ?>
+                <div class="pe-portfolio-filter">
+                    <button class="pe-filter-item" data-filter="*"><?php esc_html_e( 'همه', Portfolio_Elementor_Plugin::TEXT_DOMAIN ); ?></button>
+                    <?php foreach ( $terms as $term ) : ?>
+                        <button class="pe-filter-item" data-filter=".term-<?php echo esc_attr( $term->term_id ); ?>"><?php echo esc_html( $term->name ); ?></button>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+
+            <div class="pe-portfolio-grid columns-<?php echo esc_attr( $columns ); ?>">
+                <?php if ( $query->have_posts() ) : while ( $query->have_posts() ) : $query->the_post(); ?>
+                    <?php
+                    $post_terms = wp_get_post_terms( get_the_ID(), 'portfolio_category' );
+                    $term_classes = '';
+                    foreach ( $post_terms as $t ) {
+                        $term_classes .= ' term-' . esc_attr( $t->term_id );
+                    }
+                    ?>
+
+                    <div class="pe-portfolio-item<?php echo $term_classes; ?>">
+                        <a href="<?php the_permalink(); ?>" class="pe-portfolio-link">
+                            <?php if ( has_post_thumbnail() ) : the_post_thumbnail( 'medium' ); endif; ?>
+                            <div class="pe-portfolio-meta">
+                                <?php if ( $show_title ) : ?>
+                                    <h3 class="pe-portfolio-title"><?php the_title(); ?></h3>
+                                <?php endif; ?>
+                                <?php if ( $show_excerpt ) : ?>
+                                    <div class="pe-portfolio-excerpt"><?php the_excerpt(); ?></div>
+                                <?php endif; ?>
+                            </div>
+                        </a>
+                    </div>
+
+                <?php endwhile; wp_reset_postdata(); else: ?>
+                    <p><?php esc_html_e( 'هیچ پروژه‌ای یافت نشد.', Portfolio_Elementor_Plugin::TEXT_DOMAIN ); ?></p>
+                <?php endif; ?>
+            </div>
+
+        </div>
+
+        <script>
+        (function($){
+            // Simple client-side filter
+            $(document).on('click', '.pe-filter-item', function(e){
+                e.preventDefault();
+                var filter = $(this).attr('data-filter');
+                if (filter === '*') {
+                    $('.pe-portfolio-item').show();
+                } else {
+                    $('.pe-portfolio-item').hide();
+                    $(filter).show();
+                }
+                $('.pe-filter-item').removeClass('active');
+                $(this).addClass('active');
+            });
+        })(jQuery);
+        </script>
+
+        <?php
+    }
+
+    protected function _content_template() {
+        // Optional: JS template for live preview in Elementor editor
+    }
+
+}
+
+endif;
+
+// ------------------------------
+// assets/css/portfolio-style.css (suggested starter styles)
+// ------------------------------
+/*
+.pe-portfolio-widget { direction: rtl; }
+.pe-portfolio-filter { margin-bottom: 15px; }
+.pe-filter-item { margin: 0 6px 6px 0; padding: 6px 10px; cursor: pointer; border: 1px solid #ddd; background: transparent; }
+.pe-filter-item.active { font-weight: bold; }
+.pe-portfolio-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+.pe-portfolio-grid.columns-2 .pe-portfolio-item { width: calc(50% - 8px); }
+.pe-portfolio-grid.columns-3 .pe-portfolio-item { width: calc(33.333% - 10.66px); }
+.pe-portfolio-grid.columns-4 .pe-portfolio-item { width: calc(25% - 12px); }
+.pe-portfolio-item img { display: block; width: 100%; height: auto; }
+.pe-portfolio-meta { padding: 8px 6px; }
+*/
+
+// ------------------------------
+// assets/js/portfolio-script.js (optional enhancements)
+// ------------------------------
+/*
+(function($){
+    // Placeholder for enhancements: lightbox, AJAX load more, animations
+})(jQuery);
+*/
+
+// End of file
